@@ -1,22 +1,24 @@
-#include <stdio.h>
-#include <string.h>
+#include "u8g2_esp32_hal.h"
 
+#include "driver/gpio.h"
+#include "driver/i2c_master.h"
+#include "driver/spi_master.h"
 #include "esp_log.h"
-#include "sdkconfig.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "u8g2_esp32_hal.h"
+#include <stdio.h>
+#include <string.h>
 
 static const char* TAG = "u8g2_hal";
 static const unsigned int I2C_TIMEOUT_MS = 1000;
 
-static spi_device_handle_t handle_spi;   // SPI handle.
-static i2c_cmd_handle_t handle_i2c;      // I2C handle.
-static u8g2_esp32_hal_t u8g2_esp32_hal;  // HAL state data.
+static spi_device_handle_t handle_spi;                 // SPI handle.
+static i2c_master_bus_handle_t i2c_bus_handle = NULL;  // I2C bus handle
+static i2c_master_dev_handle_t i2c_dev_handle = NULL;  // I2C device handle
+static u8g2_esp32_hal_t u8g2_esp32_hal;                // HAL state data.
 
-#define HOST    SPI2_HOST
+#define HOST SPI2_HOST
 
 #undef ESP_ERROR_CHECK
 #define ESP_ERROR_CHECK(x)                   \
@@ -66,10 +68,18 @@ uint8_t u8g2_esp32_spi_byte_cb(u8x8_t* u8x8,
       bus_config.miso_io_num = GPIO_NUM_NC;                  // MISO
       bus_config.quadwp_io_num = GPIO_NUM_NC;                // Not used
       bus_config.quadhd_io_num = GPIO_NUM_NC;                // Not used
-      // ESP_LOGI(TAG, "... Initializing bus.");
-      ESP_ERROR_CHECK(spi_bus_initialize(HOST, &bus_config, 1));
 
-      spi_device_interface_config_t dev_config;
+      esp_err_t ret = spi_bus_initialize(HOST, &bus_config, SPI_DMA_CH_AUTO);
+      if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "SPI ERROR...");
+        ESP_ERROR_CHECK(ret);
+      } else if (ret == ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "SPI bus already initialized, continuing...");
+      } else {
+        ESP_LOGE(TAG, "SPI bus initialized successfully");
+      }
+
+      spi_device_interface_config_t dev_config = {0};
       dev_config.address_bits = 0;
       dev_config.command_bits = 0;
       dev_config.dummy_bits = 0;
@@ -78,12 +88,13 @@ uint8_t u8g2_esp32_spi_byte_cb(u8x8_t* u8x8,
       dev_config.cs_ena_posttrans = 0;
       dev_config.cs_ena_pretrans = 0;
       dev_config.clock_speed_hz = 10000;
+      dev_config.clock_source = SPI_CLK_SRC_DEFAULT;
       dev_config.spics_io_num = u8g2_esp32_hal.bus.spi.cs;
       dev_config.flags = 0;
       dev_config.queue_size = 200;
       dev_config.pre_cb = NULL;
       dev_config.post_cb = NULL;
-      // ESP_LOGI(TAG, "... Adding device bus.");
+
       ESP_ERROR_CHECK(spi_bus_add_device(HOST, &dev_config, &handle_spi));
 
       break;
@@ -132,22 +143,28 @@ uint8_t u8g2_esp32_i2c_byte_cb(u8x8_t* u8x8,
         break;
       }
 
-      i2c_config_t conf = {0};
-      conf.mode = I2C_MODE_MASTER;
+      i2c_master_bus_config_t i2c_mst_config = {
+          .clk_source = I2C_CLK_SRC_DEFAULT,
+          .i2c_port = I2C_MASTER_NUM,
+          .scl_io_num = u8g2_esp32_hal.bus.i2c.scl,
+          .sda_io_num = u8g2_esp32_hal.bus.i2c.sda,
+          .glitch_ignore_cnt = 7,
+          .flags.enable_internal_pullup = true,
+      };
+
       ESP_LOGI(TAG, "sda_io_num %d", u8g2_esp32_hal.bus.i2c.sda);
-      conf.sda_io_num = u8g2_esp32_hal.bus.i2c.sda;
-      conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
       ESP_LOGI(TAG, "scl_io_num %d", u8g2_esp32_hal.bus.i2c.scl);
-      conf.scl_io_num = u8g2_esp32_hal.bus.i2c.scl;
-      conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
       ESP_LOGI(TAG, "clk_speed %d", I2C_MASTER_FREQ_HZ);
-      conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
-      ESP_LOGI(TAG, "i2c_param_config %d", conf.mode);
-      ESP_ERROR_CHECK(i2c_param_config(I2C_MASTER_NUM, &conf));
-      ESP_LOGI(TAG, "i2c_driver_install %d", I2C_MASTER_NUM);
-      ESP_ERROR_CHECK(i2c_driver_install(I2C_MASTER_NUM, conf.mode,
-                                         I2C_MASTER_RX_BUF_DISABLE,
-                                         I2C_MASTER_TX_BUF_DISABLE, 0));
+
+      esp_err_t ret = i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle);
+      if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(ret);
+      } else if (ret == ESP_ERR_INVALID_STATE) {
+        ESP_LOGI(TAG, "I2C bus already initialized, continuing...");
+      } else {
+        ESP_LOGI(TAG, "I2C bus initialized successfully");
+      }
+
       break;
     }
 
@@ -155,31 +172,39 @@ uint8_t u8g2_esp32_i2c_byte_cb(u8x8_t* u8x8,
       uint8_t* data_ptr = (uint8_t*)arg_ptr;
       ESP_LOG_BUFFER_HEXDUMP(TAG, data_ptr, arg_int, ESP_LOG_VERBOSE);
 
-      while (arg_int > 0) {
-        ESP_ERROR_CHECK(
-            i2c_master_write_byte(handle_i2c, *data_ptr, ACK_CHECK_EN));
-        data_ptr++;
-        arg_int--;
+      if (i2c_dev_handle != NULL) {
+        esp_err_t ret = i2c_master_transmit(i2c_dev_handle, data_ptr, arg_int,
+                                            pdMS_TO_TICKS(I2C_TIMEOUT_MS));
+        if (ret != ESP_OK) {
+          ESP_LOGE(TAG, "I2C transmit failed: %s", esp_err_to_name(ret));
+        }
       }
       break;
     }
 
     case U8X8_MSG_BYTE_START_TRANSFER: {
       uint8_t i2c_address = u8x8_GetI2CAddress(u8x8);
-      handle_i2c = i2c_cmd_link_create();
       ESP_LOGD(TAG, "Start I2C transfer to %02X.", i2c_address >> 1);
-      ESP_ERROR_CHECK(i2c_master_start(handle_i2c));
-      ESP_ERROR_CHECK(i2c_master_write_byte(
-          handle_i2c, i2c_address | I2C_MASTER_WRITE, ACK_CHECK_EN));
+
+      if (i2c_bus_handle != NULL && i2c_dev_handle == NULL) {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address =
+                i2c_address >> 1,  // U8G2 używa 8-bitowego adresu (z bitem R/W)
+            .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+        };
+
+        esp_err_t ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg,
+                                                  &i2c_dev_handle);
+        if (ret != ESP_OK) {
+          ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
+        }
+      }
       break;
     }
 
     case U8X8_MSG_BYTE_END_TRANSFER: {
       ESP_LOGD(TAG, "End I2C transfer.");
-      ESP_ERROR_CHECK(i2c_master_stop(handle_i2c));
-      ESP_ERROR_CHECK(i2c_master_cmd_begin(I2C_MASTER_NUM, handle_i2c,
-                                           pdMS_TO_TICKS(I2C_TIMEOUT_MS)));
-      i2c_cmd_link_delete(handle_i2c);
       break;
     }
   }

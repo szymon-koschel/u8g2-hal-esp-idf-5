@@ -12,15 +12,19 @@
 #include "u8g2.h"
 
 #include "driver/gpio.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "driver/spi_master.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define U8G2_ESP32_HAL_UNDEFINED GPIO_NUM_NC
 
 #if SOC_I2C_NUM > 1
-#define I2C_MASTER_NUM I2C_NUM_1     //  I2C port number for master dev
+#define I2C_MASTER_NUM I2C_NUM_1  //  I2C port number for master dev
 #else
-#define I2C_MASTER_NUM I2C_NUM_0     //  I2C port number for master dev
+#define I2C_MASTER_NUM I2C_NUM_0  //  I2C port number for master dev
 #endif
 
 #define I2C_MASTER_TX_BUF_DISABLE 0  //  I2C master do not need buffer
@@ -60,13 +64,12 @@ typedef struct {
 /**
  * Construct a default HAL configuration with all fields undefined.
  */
-#define U8G2_ESP32_HAL_DEFAULT                                        \
-  {                                                                   \
-    .bus = {.spi = {.clk = U8G2_ESP32_HAL_UNDEFINED,                  \
-                    .mosi = U8G2_ESP32_HAL_UNDEFINED,                 \
-                    .cs = U8G2_ESP32_HAL_UNDEFINED}},                 \
-    .reset = U8G2_ESP32_HAL_UNDEFINED, .dc = U8G2_ESP32_HAL_UNDEFINED \
-  }
+#define U8G2_ESP32_HAL_DEFAULT                       \
+  {.bus = {.spi = {.clk = U8G2_ESP32_HAL_UNDEFINED,  \
+                   .mosi = U8G2_ESP32_HAL_UNDEFINED, \
+                   .cs = U8G2_ESP32_HAL_UNDEFINED}}, \
+   .reset = U8G2_ESP32_HAL_UNDEFINED,                \
+   .dc = U8G2_ESP32_HAL_UNDEFINED}
 
 /**
  * Initialize the HAL with the given configuration.
@@ -87,6 +90,11 @@ uint8_t u8g2_esp32_gpio_and_delay_cb(u8x8_t* u8x8,
                                      uint8_t msg,
                                      uint8_t arg_int,
                                      void* arg_ptr);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* U8G2_ESP32_HAL_H_ */
 
 #endif
