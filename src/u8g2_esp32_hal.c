@@ -76,7 +76,7 @@ uint8_t u8g2_esp32_spi_byte_cb(u8x8_t* u8x8,
       } else if (ret == ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "SPI bus already initialized, continuing...");
       } else {
-        ESP_LOGE(TAG, "SPI bus initialized successfully");
+        ESP_LOGI(TAG, "SPI bus initialized successfully");
       }
 
       spi_device_interface_config_t dev_config = {0};
