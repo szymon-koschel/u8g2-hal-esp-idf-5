@@ -74,9 +74,9 @@ uint8_t u8g2_esp32_spi_byte_cb(u8x8_t* u8x8,
         ESP_LOGE(TAG, "SPI ERROR...");
         ESP_ERROR_CHECK(ret);
       } else if (ret == ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "SPI bus already initialized, continuing...");
+        ESP_LOGW(TAG, "SPI bus already initialized, continuing...");
       } else {
-        ESP_LOGE(TAG, "SPI bus initialized successfully");
+        ESP_LOGI(TAG, "SPI bus initialized successfully");
       }
 
       spi_device_interface_config_t dev_config = {0};
@@ -110,7 +110,6 @@ uint8_t u8g2_esp32_spi_byte_cb(u8x8_t* u8x8,
       trans_desc.tx_buffer = arg_ptr;
       trans_desc.rx_buffer = NULL;
 
-      // ESP_LOGI(TAG, "... Transmitting %d bytes.", arg_int);
       ESP_ERROR_CHECK(spi_device_transmit(handle_spi, &trans_desc));
       break;
     }
@@ -160,7 +159,7 @@ uint8_t u8g2_esp32_i2c_byte_cb(u8x8_t* u8x8,
       if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_ERROR_CHECK(ret);
       } else if (ret == ESP_ERR_INVALID_STATE) {
-        ESP_LOGI(TAG, "I2C bus already initialized, continuing...");
+        ESP_LOGW(TAG, "I2C bus already initialized, continuing...");
       } else {
         ESP_LOGI(TAG, "I2C bus initialized successfully");
       }
